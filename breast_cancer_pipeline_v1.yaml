@@ -1,0 +1,415 @@
+# PIPELINE DEFINITION
+# Name: breast-cancer-pipeline
+# Description: An end-to-end parameterizable ML pipeline for Breast Cancer classification.
+# Inputs:
+#    feature_selection: str [Default: 'None']
+#    model_type: str [Default: 'SVM']
+#    random_seed: int [Default: 42.0]
+#    scaler_type: str [Default: 'StandardScaler']
+# Outputs:
+#    model-evaluation-classification_metrics: system.ClassificationMetrics
+#    model-evaluation-metrics: system.Metrics
+components:
+  comp-data-ingestion:
+    executorLabel: exec-data-ingestion
+    outputDefinitions:
+      artifacts:
+        output_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-data-preprocessing:
+    executorLabel: exec-data-preprocessing
+    inputDefinitions:
+      artifacts:
+        input_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        random_seed:
+          parameterType: NUMBER_INTEGER
+        scaler_type:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        X_test_out:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        X_train_out:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        y_test_out:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        y_train_out:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-model-evaluation:
+    executorLabel: exec-model-evaluation
+    inputDefinitions:
+      artifacts:
+        X_test_in:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        model_in:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        y_test_in:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        classification_metrics:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-model-training:
+    executorLabel: exec-model-training
+    inputDefinitions:
+      artifacts:
+        X_train_in:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        y_train_in:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        feature_selection:
+          parameterType: STRING
+        model_type:
+          parameterType: STRING
+        random_seed:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        model_out:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-data-ingestion:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - data_ingestion
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef data_ingestion(output_data: dsl.Output[dsl.Dataset]):\n    import\
+          \ pandas as pd\n    import numpy as np\n    from sklearn.datasets import\
+          \ load_breast_cancer\n\n    # Load the dataset from sklearn which mirrors\
+          \ the requested UCI/Kaggle dataset\n    data = load_breast_cancer()\n  \
+          \  df = pd.DataFrame(data.data, columns=data.feature_names)\n\n    # Map\
+          \ the target back to 'M' and 'B' to mimic the raw Kaggle dataset for preprocessing\n\
+          \    df['diagnosis'] = np.where(data.target == 0, 'M', 'B')\n\n    # Save\
+          \ to the output dataset path\n    df.to_csv(output_data.path, index=False)\n\
+          \    print(f\"Dataset ingested with shape {df.shape}\")\n\n"
+        image: python:3.10
+    exec-data-preprocessing:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - data_preprocessing
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef data_preprocessing(\n    input_data: dsl.Input[dsl.Dataset],\n\
+          \    scaler_type: str,\n    random_seed: int,\n    X_train_out: dsl.Output[dsl.Dataset],\n\
+          \    X_test_out: dsl.Output[dsl.Dataset],\n    y_train_out: dsl.Output[dsl.Dataset],\n\
+          \    y_test_out: dsl.Output[dsl.Dataset]\n):\n    import pandas as pd\n\
+          \    from sklearn.model_selection import train_test_split\n    from sklearn.preprocessing\
+          \ import StandardScaler, MinMaxScaler\n\n    df = pd.read_csv(input_data.path)\n\
+          \n    # Map M->1, B->0\n    df['diagnosis'] = df['diagnosis'].map({'M':\
+          \ 1, 'B': 0})\n\n    X = df.drop(columns=['diagnosis'])\n    y = df['diagnosis']\n\
+          \n    # Train/Test Split\n    X_train, X_test, y_train, y_test = train_test_split(X,\
+          \ y, test_size=0.2, random_state=random_seed)\n\n    # Scaling\n    if scaler_type\
+          \ == 'StandardScaler':\n        scaler = StandardScaler()\n    elif scaler_type\
+          \ == 'MinMaxScaler':\n        scaler = MinMaxScaler()\n    else:\n     \
+          \   scaler = StandardScaler()\n\n    X_train_scaled = pd.DataFrame(scaler.fit_transform(X_train),\
+          \ columns=X.columns)\n    X_test_scaled = pd.DataFrame(scaler.transform(X_test),\
+          \ columns=X.columns)\n\n    # Save splits\n    X_train_scaled.to_csv(X_train_out.path,\
+          \ index=False)\n    X_test_scaled.to_csv(X_test_out.path, index=False)\n\
+          \    y_train.to_csv(y_train_out.path, index=False)\n    y_test.to_csv(y_test_out.path,\
+          \ index=False)\n    print(\"Data preprocessing completed successfully.\"\
+          )\n\n"
+        image: python:3.10
+    exec-model-evaluation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_evaluation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_evaluation(\n    X_test_in: dsl.Input[dsl.Dataset],\n \
+          \   y_test_in: dsl.Input[dsl.Dataset],\n    model_in: dsl.Input[dsl.Model],\n\
+          \    metrics: dsl.Output[dsl.Metrics],\n    classification_metrics: dsl.Output[dsl.ClassificationMetrics]\n\
+          ):\n    import pandas as pd\n    import joblib\n    from sklearn.metrics\
+          \ import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix\n\
+          \n    X_test = pd.read_csv(X_test_in.path)\n    y_test = pd.read_csv(y_test_in.path).squeeze()\n\
+          \n    # Load model\n    model_bundle = joblib.load(model_in.path)\n    model\
+          \ = model_bundle['model']\n    selector = model_bundle.get('selector')\n\
+          \n    # Apply same feature selection transform if it was used\n    if model_bundle['feature_selection']\
+          \ == 'SelectFromModel' and selector is not None:\n        X_test = selector.transform(X_test)\n\
+          \n    # Predict\n    y_pred = model.predict(X_test)\n\n    # Calculate metrics\n\
+          \    acc = accuracy_score(y_test, y_pred)\n    prec = precision_score(y_test,\
+          \ y_pred)\n    rec = recall_score(y_test, y_pred)\n    f1 = f1_score(y_test,\
+          \ y_pred)\n\n    # Log KFP scalar metrics\n    metrics.log_metric(\"Accuracy\"\
+          , float(acc))\n    metrics.log_metric(\"Precision\", float(prec))\n    metrics.log_metric(\"\
+          Recall\", float(rec))\n    metrics.log_metric(\"F1-score\", float(f1))\n\
+          \n    # Log Confusion Matrix as an Artifact Visualization\n    cm = confusion_matrix(y_test,\
+          \ y_pred)\n    classification_metrics.log_confusion_matrix(\n        ['Benign',\
+          \ 'Malignant'],\n        cm.tolist()\n    )\n\n    print(f\"Evaluation complete.\
+          \ Accuracy: {acc:.4f}, F1: {f1:.4f}\")\n\n"
+        image: python:3.10
+    exec-model-training:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_training
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_training(\n    X_train_in: dsl.Input[dsl.Dataset],\n  \
+          \  y_train_in: dsl.Input[dsl.Dataset],\n    model_type: str,\n    feature_selection:\
+          \ str,\n    random_seed: int,\n    model_out: dsl.Output[dsl.Model]\n):\n\
+          \    import pandas as pd\n    import joblib\n    from sklearn.svm import\
+          \ SVC\n    from sklearn.ensemble import RandomForestClassifier\n    from\
+          \ sklearn.neural_network import MLPClassifier\n    from sklearn.model_selection\
+          \ import RandomizedSearchCV\n    from sklearn.feature_selection import SelectFromModel\n\
+          \n    X_train = pd.read_csv(X_train_in.path)\n    y_train = pd.read_csv(y_train_in.path).squeeze()\n\
+          \n    # Apply Feature Selection if requested\n    if feature_selection ==\
+          \ 'SelectFromModel':\n        selector = SelectFromModel(RandomForestClassifier(random_state=random_seed))\n\
+          \        selector.fit(X_train, y_train)\n        X_train = selector.transform(X_train)\n\
+          \n    # Optimization (Hyperparameter Tuning via RandomizedSearchCV)\n  \
+          \  if model_type == 'SVM':\n        base_model = SVC(random_state=random_seed)\n\
+          \        param_dist = {'C': [0.1, 1, 10], 'kernel': ['linear', 'rbf']}\n\
+          \    elif model_type == 'RandomForest':\n        base_model = RandomForestClassifier(random_state=random_seed)\n\
+          \        param_dist = {'n_estimators': [50, 100, 200], 'max_depth': [None,\
+          \ 10, 20]}\n    elif model_type == 'NeuralNetwork':\n        base_model\
+          \ = MLPClassifier(random_state=random_seed, max_iter=500)\n        param_dist\
+          \ = {'hidden_layer_sizes': [(50,), (100,), (50, 50)], 'alpha': [0.0001,\
+          \ 0.001]}\n    else:\n        raise ValueError(f\"Unknown model_type: {model_type}\"\
+          )\n\n    # Optimize using RandomizedSearchCV\n    clf = RandomizedSearchCV(base_model,\
+          \ param_dist, n_iter=3, cv=3, random_state=random_seed, n_jobs=-1)\n   \
+          \ clf.fit(X_train, y_train)\n\n    # Save model and optionally selector\n\
+          \    model_bundle = {\n        'model': clf.best_estimator_,\n        'feature_selection':\
+          \ feature_selection,\n        'selector': selector if feature_selection\
+          \ == 'SelectFromModel' else None\n    }\n\n    joblib.dump(model_bundle,\
+          \ model_out.path)\n    print(f\"Model {model_type} trained with best params:\
+          \ {clf.best_params_}\")\n\n"
+        image: python:3.10
+pipelineInfo:
+  description: An end-to-end parameterizable ML pipeline for Breast Cancer classification.
+  name: breast-cancer-pipeline
+root:
+  dag:
+    outputs:
+      artifacts:
+        model-evaluation-classification_metrics:
+          artifactSelectors:
+          - outputArtifactKey: classification_metrics
+            producerSubtask: model-evaluation
+        model-evaluation-metrics:
+          artifactSelectors:
+          - outputArtifactKey: metrics
+            producerSubtask: model-evaluation
+    tasks:
+      data-ingestion:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-data-ingestion
+        taskInfo:
+          name: data-ingestion
+      data-preprocessing:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-data-preprocessing
+        dependentTasks:
+        - data-ingestion
+        inputs:
+          artifacts:
+            input_data:
+              taskOutputArtifact:
+                outputArtifactKey: output_data
+                producerTask: data-ingestion
+          parameters:
+            random_seed:
+              componentInputParameter: random_seed
+            scaler_type:
+              componentInputParameter: scaler_type
+        taskInfo:
+          name: data-preprocessing
+      model-evaluation:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-evaluation
+        dependentTasks:
+        - data-preprocessing
+        - model-training
+        inputs:
+          artifacts:
+            X_test_in:
+              taskOutputArtifact:
+                outputArtifactKey: X_test_out
+                producerTask: data-preprocessing
+            model_in:
+              taskOutputArtifact:
+                outputArtifactKey: model_out
+                producerTask: model-training
+            y_test_in:
+              taskOutputArtifact:
+                outputArtifactKey: y_test_out
+                producerTask: data-preprocessing
+        taskInfo:
+          name: model-evaluation
+      model-training:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-training
+        dependentTasks:
+        - data-preprocessing
+        inputs:
+          artifacts:
+            X_train_in:
+              taskOutputArtifact:
+                outputArtifactKey: X_train_out
+                producerTask: data-preprocessing
+            y_train_in:
+              taskOutputArtifact:
+                outputArtifactKey: y_train_out
+                producerTask: data-preprocessing
+          parameters:
+            feature_selection:
+              componentInputParameter: feature_selection
+            model_type:
+              componentInputParameter: model_type
+            random_seed:
+              componentInputParameter: random_seed
+        taskInfo:
+          name: model-training
+  inputDefinitions:
+    parameters:
+      feature_selection:
+        defaultValue: None
+        isOptional: true
+        parameterType: STRING
+      model_type:
+        defaultValue: SVM
+        isOptional: true
+        parameterType: STRING
+      random_seed:
+        defaultValue: 42.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      scaler_type:
+        defaultValue: StandardScaler
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      model-evaluation-classification_metrics:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      model-evaluation-metrics:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0
